@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,9 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FileText, Video, Image, Mic, Upload, Sparkles, Play, Download, Save } from 'lucide-react';
 import { FileUpload } from '@/components/FileUpload';
+import { AIModelSelector } from '@/components/AIModelSelector';
 import { useResourceManager } from '@/hooks/useResourceManager';
 import { useCategories } from '@/hooks/useCategories';
-import { useAI } from '@/hooks/useAI';
+import { useAI, AIProvider } from '@/hooks/useAI';
 import { toast } from 'sonner';
 
 export const ResourceCreator = () => {
@@ -23,6 +23,8 @@ export const ResourceCreator = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [generatedContent, setGeneratedContent] = useState('');
   const [generatedAudio, setGeneratedAudio] = useState<string | null>(null);
+  const [currentModel, setCurrentModel] = useState('');
+  const [currentProvider, setCurrentProvider] = useState<AIProvider>('siliconflow');
 
   const { createResource, uploadFile, isCreating } = useResourceManager();
   const { categories } = useCategories();
@@ -36,6 +38,11 @@ export const ResourceCreator = () => {
     { id: 'document' as const, label: '文档资料', icon: FileText, description: '创建教学文档和资料' },
   ];
 
+  const handleModelChange = (model: string, provider: AIProvider) => {
+    setCurrentModel(model);
+    setCurrentProvider(provider);
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) {
       toast.error('请输入生成提示');
@@ -44,7 +51,7 @@ export const ResourceCreator = () => {
 
     try {
       if (selectedType === 'image') {
-        const result = await generateImage(prompt);
+        const result = await generateImage(prompt, currentModel, currentProvider);
         if (result?.image) {
           setGeneratedContent(result.image);
         }
@@ -54,7 +61,7 @@ export const ResourceCreator = () => {
           setGeneratedAudio(`data:audio/mp3;base64,${result.audioContent}`);
         }
       } else {
-        const result = await generateText(prompt);
+        const result = await generateText(prompt, currentModel, currentProvider);
         if (result?.generatedText) {
           setGeneratedContent(result.generatedText);
         }
@@ -114,9 +121,14 @@ export const ResourceCreator = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold text-gray-900">创建教学资源</h2>
-        <Badge variant="secondary" className="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
-          AI 驱动
-        </Badge>
+        <div className="flex space-x-2">
+          <Badge variant="secondary" className="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+            AI 驱动
+          </Badge>
+          <Badge variant="outline" className="border-green-500 text-green-700">
+            多模型支持
+          </Badge>
+        </div>
       </div>
 
       {/* 基本信息 */}
@@ -203,6 +215,12 @@ export const ResourceCreator = () => {
             </TabsList>
             
             <TabsContent value="ai" className="space-y-4">
+              {/* AI模型选择器 */}
+              <AIModelSelector 
+                type={selectedType === 'image' ? 'image' : selectedType === 'audio' ? 'audio' : 'text'}
+                onModelChange={handleModelChange}
+              />
+              
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   生成提示
