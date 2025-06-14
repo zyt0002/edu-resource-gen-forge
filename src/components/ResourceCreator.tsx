@@ -6,27 +6,108 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Video, Image, Mic, Upload, Sparkles, Play, Download } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { FileText, Video, Image, Mic, Upload, Sparkles, Play, Download, Save } from 'lucide-react';
+import { FileUpload } from '@/components/FileUpload';
+import { useResourceManager } from '@/hooks/useResourceManager';
+import { useCategories } from '@/hooks/useCategories';
+import { useAI } from '@/hooks/useAI';
+import { toast } from 'sonner';
 
 export const ResourceCreator = () => {
-  const [selectedType, setSelectedType] = useState('courseware');
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [selectedType, setSelectedType] = useState<'courseware' | 'video' | 'image' | 'audio' | 'document'>('courseware');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [generatedContent, setGeneratedContent] = useState('');
+  const [generatedAudio, setGeneratedAudio] = useState<string | null>(null);
+
+  const { createResource, uploadFile, isCreating } = useResourceManager();
+  const { categories } = useCategories();
+  const { generateText, generateImage, textToSpeech, isGenerating } = useAI();
 
   const resourceTypes = [
-    { id: 'courseware', label: '课件制作', icon: FileText, description: '生成PPT课件和教学大纲' },
-    { id: 'video', label: '视频内容', icon: Video, description: '创建教学视频和动画' },
-    { id: 'image', label: '图像资源', icon: Image, description: '制作图表、插画和海报' },
-    { id: 'audio', label: '音频内容', icon: Mic, description: '生成音频讲解和音效' },
+    { id: 'courseware' as const, label: '课件制作', icon: FileText, description: '生成PPT课件和教学大纲' },
+    { id: 'video' as const, label: '视频内容', icon: Video, description: '创建教学视频和动画' },
+    { id: 'image' as const, label: '图像资源', icon: Image, description: '制作图表、插画和海报' },
+    { id: 'audio' as const, label: '音频内容', icon: Mic, description: '生成音频讲解和音效' },
+    { id: 'document' as const, label: '文档资料', icon: FileText, description: '创建教学文档和资料' },
   ];
 
   const handleGenerate = async () => {
-    setIsGenerating(true);
-    // Simulate AI generation
-    setTimeout(() => {
-      setGeneratedContent('这是AI生成的教学内容示例...');
-      setIsGenerating(false);
-    }, 2000);
+    if (!prompt.trim()) {
+      toast.error('请输入生成提示');
+      return;
+    }
+
+    try {
+      if (selectedType === 'image') {
+        const result = await generateImage(prompt);
+        if (result?.image) {
+          setGeneratedContent(result.image);
+        }
+      } else if (selectedType === 'audio') {
+        const result = await textToSpeech(prompt);
+        if (result?.audioContent) {
+          setGeneratedAudio(`data:audio/mp3;base64,${result.audioContent}`);
+        }
+      } else {
+        const result = await generateText(prompt);
+        if (result?.generatedText) {
+          setGeneratedContent(result.generatedText);
+        }
+      }
+    } catch (error) {
+      console.error('生成失败:', error);
+      toast.error('生成失败，请重试');
+    }
+  };
+
+  const handleSave = async () => {
+    if (!title.trim()) {
+      toast.error('请输入资源标题');
+      return;
+    }
+
+    try {
+      let filePath = null;
+      let fileSize = null;
+      let fileType = null;
+
+      // 如果有文件，先上传
+      if (selectedFile) {
+        const uploadResult = await uploadFile(selectedFile);
+        filePath = uploadResult.path;
+        fileSize = uploadResult.size;
+        fileType = uploadResult.type;
+      }
+
+      // 创建资源
+      createResource({
+        title,
+        description: description || null,
+        content: generatedContent || null,
+        type: selectedType,
+        category_id: selectedCategoryId || null,
+        file_path: filePath,
+        file_size: fileSize,
+        file_type: fileType,
+      });
+
+      // 重置表单
+      setTitle('');
+      setDescription('');
+      setPrompt('');
+      setGeneratedContent('');
+      setGeneratedAudio(null);
+      setSelectedFile(null);
+      setSelectedCategoryId('');
+    } catch (error) {
+      console.error('保存失败:', error);
+      toast.error('保存失败，请重试');
+    }
   };
 
   return (
@@ -38,10 +119,57 @@ export const ResourceCreator = () => {
         </Badge>
       </div>
 
+      {/* 基本信息 */}
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">基本信息</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              资源标题 *
+            </label>
+            <Input
+              placeholder="请输入资源标题"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              分类
+            </label>
+            <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
+              <SelectTrigger>
+                <SelectValue placeholder="选择分类" />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((category) => (
+                  <SelectItem key={category.id} value={category.id}>
+                    {category.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            资源描述
+          </label>
+          <Textarea
+            placeholder="描述资源的用途和特点..."
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+          />
+        </div>
+      </Card>
+
       {/* Resource Type Selection */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">选择资源类型</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
           {resourceTypes.map((type) => {
             const Icon = type.icon;
             return (
@@ -68,92 +196,78 @@ export const ResourceCreator = () => {
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">内容输入</h3>
           
-          <Tabs defaultValue="text" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="text">文本输入</TabsTrigger>
-              <TabsTrigger value="voice">语音输入</TabsTrigger>
+          <Tabs defaultValue="ai" className="space-y-4">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="ai">AI 生成</TabsTrigger>
               <TabsTrigger value="file">文件上传</TabsTrigger>
             </TabsList>
             
-            <TabsContent value="text" className="space-y-4">
+            <TabsContent value="ai" className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  教学主题
-                </label>
-                <Input placeholder="例如：机器学习基础概念" />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  详细描述
+                  生成提示
                 </label>
                 <Textarea 
-                  placeholder="描述您想要创建的教学内容，包括目标受众、知识点等..."
+                  placeholder={
+                    selectedType === 'image' 
+                      ? "描述您想要生成的图像，例如：一个关于机器学习的信息图表..."
+                      : selectedType === 'audio'
+                      ? "输入要转换为语音的文本内容..."
+                      : "描述您想要创建的教学内容，包括目标受众、知识点等..."
+                  }
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
                   rows={6}
                 />
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  关键词标签
-                </label>
-                <Input placeholder="用逗号分隔，例如：算法,数据结构,编程" />
-              </div>
-            </TabsContent>
-            
-            <TabsContent value="voice" className="space-y-4">
-              <div className="text-center py-8">
-                <Mic className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 mb-4">点击开始录音，描述您的教学需求</p>
-                <Button className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700">
-                  <Mic className="h-4 w-4 mr-2" />
-                  开始录音
-                </Button>
-              </div>
+              <Button 
+                onClick={handleGenerate}
+                disabled={isGenerating || !prompt.trim()}
+                className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+              >
+                {isGenerating ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 mr-2 border-2 border-white border-t-transparent rounded-full"></div>
+                    AI 正在生成...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    开始生成
+                  </>
+                )}
+              </Button>
             </TabsContent>
             
             <TabsContent value="file" className="space-y-4">
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-600 mb-4">
-                  拖拽文件到此处或点击上传
-                </p>
-                <p className="text-sm text-gray-500 mb-4">
-                  支持 PDF、DOC、PPT、TXT 等格式
-                </p>
-                <Button variant="outline">选择文件</Button>
-              </div>
+              <FileUpload
+                onFileSelect={setSelectedFile}
+                selectedFile={selectedFile}
+                onRemoveFile={() => setSelectedFile(null)}
+              />
             </TabsContent>
           </Tabs>
-          
-          <div className="mt-6">
-            <Button 
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
-            >
-              {isGenerating ? (
-                <>
-                  <div className="animate-spin h-4 w-4 mr-2 border-2 border-white border-t-transparent rounded-full"></div>
-                  AI 正在生成...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  开始生成
-                </>
-              )}
-            </Button>
-          </div>
         </Card>
 
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">生成预览</h3>
           
-          {generatedContent ? (
+          {generatedContent || generatedAudio ? (
             <div className="space-y-4">
               <div className="bg-gray-50 rounded-lg p-4 min-h-[300px]">
-                <p className="text-gray-800">{generatedContent}</p>
+                {selectedType === 'image' && generatedContent ? (
+                  <img src={generatedContent} alt="生成的图像" className="max-w-full h-auto rounded" />
+                ) : selectedType === 'audio' && generatedAudio ? (
+                  <div className="text-center">
+                    <audio controls className="w-full">
+                      <source src={generatedAudio} type="audio/mpeg" />
+                      您的浏览器不支持音频播放。
+                    </audio>
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap text-gray-800">{generatedContent}</div>
+                )}
               </div>
               
               <div className="flex space-x-2">
@@ -165,9 +279,6 @@ export const ResourceCreator = () => {
                   <Download className="h-4 w-4 mr-2" />
                   下载
                 </Button>
-                <Button size="sm" className="bg-gradient-to-r from-green-500 to-green-600">
-                  保存资源
-                </Button>
               </div>
             </div>
           ) : (
@@ -178,6 +289,29 @@ export const ResourceCreator = () => {
           )}
         </Card>
       </div>
+
+      {/* 保存按钮 */}
+      <Card className="p-6">
+        <div className="flex justify-end space-x-4">
+          <Button
+            onClick={handleSave}
+            disabled={isCreating || !title.trim()}
+            className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700"
+          >
+            {isCreating ? (
+              <>
+                <div className="animate-spin h-4 w-4 mr-2 border-2 border-white border-t-transparent rounded-full"></div>
+                保存中...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                保存资源
+              </>
+            )}
+          </Button>
+        </div>
+      </Card>
     </div>
   );
 };
